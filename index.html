@@ -1,0 +1,166 @@
+<script>
+function dbg_assert(cond) {
+	if(!cond) {
+		console.log("Assertion failure");
+	}
+}
+
+function dbg_log(s) {
+	console.log(s);
+}
+
+</script>
+<script src="const.js"></script>
+<script src="main.js"></script>
+<script src="memory.js"></script>
+<script src="io.js"></script>
+<script src="v86.js"></script>
+<script src="fpu.js"></script>
+
+<!--<script src="v86_api.js"></script>-->
+<script src="granny2.js"></script>
+<script src="granny2.subs.js"></script>
+<script src="granny2.def.js"></script>
+<script src="pe_env.js"></script>
+
+<script>
+
+function begin(bin_granny2, bin_empelium) {
+
+	var gr2 = new Granny2(bin_granny2);
+	
+	var struct;
+	
+	window._cpu = gr2.runtime.cpu;
+	window._gr2 = gr2;
+
+	console.log("Granny version match", gr2.VersionMatch(2, 1, 0, 5));
+
+	var t = Date.now();
+
+	var granny_file_ptr = gr2.ReadEntireFileFromMemory(bin_empelium);
+	
+	struct = Granny2.readStructure(gr2.runtime.cpu, granny_file_ptr, Granny2.structs.granny_file);
+	
+	console.log('granny_file', struct);
+	writeTable("granny_file", struct);
+	
+	console.log("Done in",Date.now() - t, "ms");
+	
+	console.log("granny_file_ptr", granny_file_ptr);
+	
+	var t = Date.now();
+
+	var file_info = gr2.GetFileInfo(granny_file_ptr);
+	
+	struct = Granny2.readStructure(gr2.runtime.cpu, file_info, Granny2.structs.granny_file_info);
+	
+	console.log('granny_file_info', struct);
+	writeTable('granny_file_info', struct);
+	
+	var textureCount = gr2.runtime.get_dword_ptr(file_info + 4 * 4);
+	var texturePtrs = gr2.runtime.get_dword_ptr(file_info + 5 * 4);
+	
+	for(var i = 0 ; i < textureCount; i++) {
+		
+		var textures_va = texturePtrs + 4 * i;
+		var texture_va = gr2.runtime.get_dword_ptr(textures_va);
+		
+		struct = Granny2.readStructure(gr2.runtime.cpu, texture_va, Granny2.structs.granny_texture);
+		
+		writeTable("granny_texture " + i, struct);
+		
+		var hasAlpha = gr2.TextureHasAlpha(texture_va);
+		var texture_data = gr2.CopyTextureImage(texture_va);
+
+		var canvas = document.createElement('canvas');
+		canvas.width = struct.Width;
+		canvas.height = struct.Height;
+		
+		document.body.appendChild(canvas);
+		
+		var ctx = canvas.getContext('2d');
+		var imgd = ctx.getImageData(0, 0, canvas.width, canvas.height);
+		for(var j = 0; j < texture_data.length; j++) {
+			imgd.data[j] = texture_data[j];
+		}
+		ctx.putImageData(imgd, 0, 0);
+		
+		break;
+		
+	}
+	
+
+	console.log("TextureHasAlpha:", hasAlpha);
+
+	// Object.keys(cycle_counter).map(function(key) { return [parseInt(key, 10).toString(16), cycle_counter[key]] }).sort(function(a, b) { return a[1] - b[1] })
+
+
+	console.log("Done in",Date.now() - t, "ms");
+	
+	
+	//var runtime = new Win32Runtime(bin_granny2, 0x10000000, granny2_imports, granny2_exports);
+	/*
+	console.log(
+		"GrannyVersionMatch(2, 1, 0, 5) = " + 
+		runtime.stdcall(granny2_exports.GrannyVersionsMatch_, 2, 1, 0, 5)
+	);*/
+
+};
+
+function writeTable(title, obj) {
+
+	var str = "";
+
+	for(var i in obj) {
+		str += "<tr><td>" + i + "</td><td>" + obj[i] + "</td></tr>";
+	}
+
+	document.body.innerHTML += "<h1>" + title + "</h1>" + "<table>" + str + "</table>";
+
+}
+
+window.onload = function() {
+
+	console.log("Starting");
+
+	var xhr = new XMLHttpRequest();
+
+	xhr.open('GET', 'granny2.bin', true);
+	xhr.responseType = 'arraybuffer';
+
+	xhr.onload = function(e) {
+		if (this.status == 200) {
+			
+			var bin_granny2 = this.response;
+			
+			(function() {
+			
+				var xhr = new XMLHttpRequest();
+
+				//xhr.open('GET', 'empelium90_0.gr2', true);
+				xhr.open('GET', 'guildflag90_1.gr2', true);
+				xhr.responseType = 'arraybuffer';
+
+				xhr.onload = function(e) {
+					if (this.status == 200) {
+						var bin_empelium = this.response;
+						
+						begin(bin_granny2, bin_empelium);
+						
+					}
+				};
+
+				xhr.send(null);
+			
+			})();
+
+		}
+	};
+
+	xhr.send(null);
+
+};
+
+
+</script>
