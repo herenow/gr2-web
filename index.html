@@ -89,14 +89,19 @@ function render(indices, vertices, model_texture) {
 		
 		var face = new THREE.Face3(a, b, c);
 		
-		face.vertexNormals[0] = vertexNormals[a];
-		face.vertexNormals[1] = vertexNormals[b];
-		face.vertexNormals[2] = vertexNormals[c];
+		//face.vertexNormals[0] = vertexNormals[a];
+		//face.vertexNormals[1] = vertexNormals[b];
+		//face.vertexNormals[2] = vertexNormals[c];
 	
 		geo.faces.push(face);
 		geo.faceVertexUvs[0].push([uvs[a], uvs[b], uvs[c]]);
 		
 	}
+	
+	geo.computeFaceNormals();
+	geo.computeVertexNormals();
+	
+	console.log(geo);
 	
 	geo.applyMatrix((new THREE.Matrix4()).set(
 		1, 0, 0, 0,
@@ -105,16 +110,22 @@ function render(indices, vertices, model_texture) {
 		0, 0, 0, 1
 	));
 	
+	
 	var texture = new THREE.Texture(model_texture);
 	texture.needsUpdate = true;
 	
-	material = new THREE.MeshBasicMaterial({
+	material = new THREE.MeshLambertMaterial({
 		color: 0xffffff, 
-		//wireframe: true,
 		map: texture
 	});
 	
-	//material.side = THREE.DoubleSide;
+	var light = new THREE.AmbientLight(0x404040);
+	
+	
+	var light2 = new THREE.DirectionalLight(0xffffff, 0.5);
+	
+	light2.position.set(0, 20, -50);
+	
 	material.side = THREE.BackSide;
 	
 	var myMesh = new THREE.Mesh(geo, material);
@@ -124,20 +135,18 @@ function render(indices, vertices, model_texture) {
 	
 	scene = new THREE.Scene();
 
-	camera = new THREE.PerspectiveCamera( 75, 800 / 600, 1, 10000 );
-	camera.position.x = 35;
-	camera.position.z = 35;
+	scene.add(light);
+	scene.add(light2);
+
+	camera = new THREE.PerspectiveCamera( 45, 800 / 600, 1, 10000 );
+	camera.position.x = 25;
 	camera.position.y = 35;
+	camera.position.z = 25;
 	
-	camera.lookAt(new THREE.Vector3(0, 0, 0));
+	camera.lookAt(new THREE.Vector3(0, 10, 0));
 
 	scene.add(new THREE.AxisHelper(100));
 
-	//geometry = new THREE.BoxGeometry( 200, 200, 200 );
-
-	//mesh = new THREE.Mesh( geometry, material );
-	
-	//scene.add( mesh );
 	scene.add( myMesh );
 
 	renderer = new THREE.WebGLRenderer();
@@ -147,7 +156,6 @@ function render(indices, vertices, model_texture) {
 
 	(function animate() {
 		requestAnimationFrame(animate);
-		//myMesh.rotation.x += 0.01;
 		myMesh.rotation.y += 0.01;
 		renderer.render(scene, camera);
 	})();
