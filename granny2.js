@@ -22,6 +22,53 @@
 
 	Granny2.structs = {
 	
+		'granny_skeleton': [
+			['char*', 'Name', { string: true }],
+			['int', 'BoneCount', {}],
+			['void*', 'Bones', {}]
+		],
+		
+		'granny_variant': [
+			['int', 'Type', {}],
+			['int', 'Object', {}],
+		],
+		
+		'granny_model_mesh_binding': [
+			//['void*', 'Mesh', {}]
+			['void*', 'Mesh', {}]
+		],
+		
+		'granny_mesh': [
+			['char*', 'Name', { string: true }],
+			['void*', 'PrimaryVertexData', {}],
+			['int', 'MorphTargetCount', {}],
+			['void*', 'MorphTargets', {}],
+			['void*', 'PrimaryTopology', {}],
+			['int', 'MaterialsBindingCount', {}],
+			['void*', 'MaterialBindings', {}],
+			['int', 'BoneBindingsCount', {}],
+			['void*', 'BoneBindings', {}],
+			['int', 'ExtendedData_Variant_Type', {}],
+			['int', 'ExtendedData_Variant_Object', {}],
+		],
+	
+		'granny_transform': [
+			['int', 'Flags', {}],
+			['float[3]', 'Position', {}],
+			['float[4]', 'Orientation', {}],
+			['float[9]', 'ScaleShear', {}],
+		],
+	
+		'granny_model': [
+			['char*', 'Name', { string: true }],
+			['void*', 'Skeleton', {}],
+			['granny_transform', 'InitialPlacement', {}],
+			['int', 'MeshBindingsCount', {}],
+			//['granny_model_mesh_binding*', 'MeshBindings', { size: 'MeshBindingsCount' }],
+			//['granny_model_mesh_binding*', 'MeshBindings', { size: 'MeshBindingsCount' }],
+			['granny_model_mesh_binding*', 'MeshBindings', { size: 'MeshBindingsCount' }],
+		],
+	
 		'granny_file_info': [
 			['char**', 'FileStringTable', {}],
 			['void*', 'ArtToolInfo', {}],
@@ -32,15 +79,15 @@
 			['int', 'MaterialCount', {}],
 			['void*', 'Materials', {}],
 			['int', 'SkeletonCount', {}],
-			['void*', 'Skeletons', {}],
+			['granny_skeleton*', 'Skeletons', { size: 'SkeletonCount' }],
 			['int', 'VertexDataCount', {}],
 			['void*', 'VertexDatas', {}],
 			['int', 'TriTopologyCount', {}],
 			['void*', 'TriTopologies', {}],
 			['int', 'MeshCount', {}],
-			['void*', 'Meshes', {}],
+			['granny_mesh*', 'Meshes', { size: 'MeshCount' }],
 			['int', 'ModelCount', {}],
-			['void*', 'Models', {}],
+			['granny_model*', 'Models', { size: 'ModelCount' }],
 			['int', 'TrackGroupCount', {}],
 			['void*', 'TrackGroups', {}],
 			['int', 'AnimationCount', {}],
@@ -128,8 +175,12 @@
 				case 'int':
 				case 'void':
 				case 'void*':
+				case 'float':
 				
 					//console.log("Reading " + name);
+					
+					if(base_type == 'float')
+						method = 'readFloat';
 					
 					if(is_arr) 
 					{
@@ -161,10 +212,49 @@
 					
 				default:
 				
-					if(base_type in Granny2.structs && is_ptr) {
+					if(base_type in Granny2.structs) {
 						
-						struct[name] = resolve_struct(cpu, va, Granny2.structs[base_type]);
-						va += 4;
+						var size = 1;
+						
+						if(typeof flags.size == 'number') {
+							size = flags.size;
+						} else if(typeof flags.size == 'string') {
+							if(!(flags.size in struct))
+								throw "Invalid size";
+							size = Number(struct[flags.size]);
+						}
+						
+						struct[name] = [];
+						
+						var arr_base_addr;
+						
+						if(is_ptr) {
+
+							arr_base_addr = cpu.memory.read32s(cpu.translate_address_read(va));
+							
+							for(var j = 0; j < size; j++) {
+								struct[name].push(
+									resolve_struct(
+										cpu, 
+										cpu.memory.read32s(cpu.translate_address_read(arr_base_addr) + 4 * j),
+										Granny2.structs[base_type]
+									)
+								);
+							}
+							
+							va += 4;
+							
+						} else {
+							
+							arr_base_addr = va;
+							
+							for(var j = 0; j < size; j++) {
+								struct[name].push(resolve_struct(cpu, va, Granny2.structs[base_type]));
+								va += struct[name][j]._size;
+							}
+							
+						}
+							
 						
 					} else {
 						
@@ -181,6 +271,8 @@
 			
 		}
 		
+		struct._size = va - struct._ptr;
+		
 		return struct;
 			
 	};
@@ -188,6 +280,135 @@
 	Granny2.readStructure = resolve_struct;
 
 	var api = Granny2.prototype;
+	
+	api.CopyMeshVertices = function(granny_mesh_ptr) {
+		
+		var size = this.GetMeshVertexCount(granny_mesh_ptr) * 32;
+		var buffer_ptr = this.runtime.allocator.alloc(size);
+	
+		var success = this.runtime.stdcall(
+			Granny2.exports.GrannyCopyMeshVertices,
+			granny_mesh_ptr,
+			this.runtime.get_dword_ptr(Granny2.exports.GrannyPNT332VertexType),
+			buffer_ptr
+		);
+		
+		//if(!success) throw "Failed to copy mesh vertoces";
+		
+		var vertices = new Uint8Array(new ArrayBuffer(size));
+		
+		this.runtime.copy_from_mem(buffer_ptr, vertices);
+		this.runtime.allocator.free(buffer_ptr);
+		
+		return vertices;
+		
+	};
+	
+	api.NewMeshDeformer = function(vertex_type) {
+		
+		var mesh_deformer = this.runtime.stdcall(
+			Granny2.exports.GrannyNewMeshDeformer,
+			vertex_type,
+			this.runtime.get_dword_ptr(Granny2.exports.GrannyPNT332VertexType),
+			2
+		);
+		
+		return mesh_deformer;
+		
+	};
+	
+	api.GetMeshVertexType = function(granny_mesh_ptr) {
+		return this.runtime.stdcall(
+			Granny2.exports.GrannyGetMeshVertexType,
+			granny_mesh_ptr
+		);
+	};
+	
+	api.MeshIsRigid = function(granny_mesh_ptr) {
+		return !!this.runtime.stdcall(
+			Granny2.exports.GrannyMeshIsRigid,
+			granny_mesh_ptr
+		);
+	}
+	
+	api.GetMeshVertexCount = function(granny_mesh_ptr) {
+		return this.runtime.stdcall(
+			Granny2.exports.GrannyGetMeshVertexCount,
+			granny_mesh_ptr
+		);
+	};
+	
+	api.CopyMeshIndices = function(granny_mesh_ptr) {
+	
+		var size = this.GetMeshIndexCount(granny_mesh_ptr);
+	
+		var buffer_ptr = this.runtime.allocator.alloc(size * 2);
+	
+		var success = this.runtime.stdcall(
+			Granny2.exports.GrannyCopyMeshIndices,
+			granny_mesh_ptr,
+			2,
+			buffer_ptr
+		);
+		
+		if(!success) throw "Failed to copy mesh indices";
+		
+		var indices = new Uint8Array(new ArrayBuffer(size * 2));
+		
+		this.runtime.copy_from_mem(buffer_ptr, indices);
+		this.runtime.allocator.free(buffer_ptr);
+		
+		return indices;
+	
+	};
+	
+	api.GetMeshIndexCount = function(granny_mesh_ptr) {
+		return this.runtime.stdcall(
+			Granny2.exports.GrannyGetMeshIndexCount,
+			granny_mesh_ptr
+		);
+	};
+	
+	api.NewMeshBinding = function(granny_mesh_ptr, source_skeleton1, source_skeleton2) {
+		
+		granny_mesh_binding = this.runtime.stdcall(
+			Granny2.exports.GrannyNewMeshBinding,
+			granny_mesh_ptr, 
+			source_skeleton1, 
+			source_skeleton2
+		);
+		
+		return granny_mesh_binding;
+	};
+	
+	api.GetSourceSkeleton = function(granny_model_instance_ptr) {
+		return this.runtime.stdcall(
+			Granny2.exports.GrannyGetSourceSkeleton,
+			granny_model_instance_ptr
+		);
+	};
+	
+	api.NewWorldPose = function(bones_count) {
+		
+		var granny_world_pose = this.runtime.stdcall(
+			Granny2.exports.GrannyNewWorldPose,
+			bones_count
+		);
+		
+		return granny_world_pose;
+		
+	};
+	
+	api.InstantiateModel = function(granny_model_ptr) {
+		
+		var granny_model_instance = this.runtime.stdcall(
+			Granny2.exports.GrannyInstantiateModel,
+			granny_model_ptr
+		);
+		
+		return granny_model_instance;
+		
+	};
 	
 	/**
 	 * Check against DLL version

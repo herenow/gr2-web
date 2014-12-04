@@ -46,7 +46,7 @@
 					var dwFlags = runtime.get_arg(2);
 					var lpMem = runtime.get_arg(3);
 					
-					console.log("HeapFree: 0x" + lpMem.toString(16));
+					//console.log("HeapFree: 0x" + lpMem.toString(16));
 				
 					if(hHeap != PROCESS_HEAP)
 						throw "Invalid heap";
@@ -346,6 +346,11 @@
 		this.cpu.memory.mem8.set(array, phys_addr);
 	};
 	
+	fn.copy_from_mem = function(src_address, array) {
+		var phys_addr = this.cpu.translate_address_read(src_address);
+		array.set(this.cpu.memory.mem8.subarray(phys_addr, phys_addr + array.length));
+	};
+	
 	fn.jump = function(address) {
 		
 	};
@@ -417,8 +422,17 @@
 		{
 				return addr - base_addr;
 		};
-		
+				
 		cpu.init({});
+		
+		cpu.memory.memfloat = new Float32Array(cpu.memory.mem32s.buffer);
+		
+		cpu.memory.readFloat = function(phys_addr) {
+			if(phys_addr % 4 == 0)
+				return this.memfloat[phys_addr >> 2];
+			else throw "inception";
+		};
+		
 		cpu.fpu = new FPU(cpu);
 	
 		cpu.switch_seg(reg_cs, 0);

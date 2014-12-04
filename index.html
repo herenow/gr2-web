@@ -10,6 +10,8 @@ function dbg_log(s) {
 }
 
 </script>
+<script src="three.min.js"></script>
+
 <script src="const.js"></script>
 <script src="main.js"></script>
 <script src="memory.js"></script>
@@ -24,6 +26,133 @@ function dbg_log(s) {
 <script src="pe_env.js"></script>
 
 <script>
+
+function render(indices, vertices, model_texture) {
+	
+	window._indices = indices;
+	window._vertices= vertices;
+		
+	var PNT332 = new Float32Array(vertices.buffer);
+	
+	console.log(PNT332);
+	
+	var geo = new THREE.Geometry();
+	var verticeCount = PNT332.length / (3 + 3 + 2);
+	
+	var vertexNormals = [];
+	var uvs = [];
+	
+	for(var i = 0; i < verticeCount; i++) {
+		
+		var vx = PNT332[i * (8) + 0];
+		var vy = PNT332[i * (8) + 1];
+		var vz = PNT332[i * (8) + 2];
+		var nx = PNT332[i * (8) + 3];
+		var ny = PNT332[i * (8) + 4];
+		var nz = PNT332[i * (8) + 5];
+		var tx = PNT332[i * (8) + 6];
+		var ty = PNT332[i * (8) + 7];
+		
+		geo.vertices.push(new THREE.Vector3(vx, vy, vz));
+		vertexNormals.push(new THREE.Vector3(nx, ny, nz));
+		uvs.push(new THREE.Vector2(tx, 1.0 - ty));
+		
+		
+	};
+	
+	// Triangle strip
+	
+	//var a = indices[0];
+	//var b = indices[1];
+	
+	//for(i = 2; i < indices.length; i++) {
+	
+	//	var c = indices[i];
+		
+	//	var face = new THREE.Face3(a, b, c);
+		
+	//	face.vertexNormals[0] = vertexNormals[a];
+	//	face.vertexNormals[1] = vertexNormals[b];
+	//	face.vertexNormals[2] = vertexNormals[c];
+	
+	//	geo.faces.push(face);
+	//	geo.faceVertexUvs[0].push([uvs[a], uvs[b], uvs[c]]);
+		
+	//	a = b;
+	//	b = c;
+		
+	//}
+	
+	for(i = 0; i < indices.length / 3; i += 2) { // increment by two because of gravity
+	
+		var a = indices[i * 3], b = indices[i * 3 + 2], c = indices[i * 3 + 4];
+		
+		var face = new THREE.Face3(a, b, c);
+		
+		face.vertexNormals[0] = vertexNormals[a];
+		face.vertexNormals[1] = vertexNormals[b];
+		face.vertexNormals[2] = vertexNormals[c];
+	
+		geo.faces.push(face);
+		geo.faceVertexUvs[0].push([uvs[a], uvs[b], uvs[c]]);
+		
+	}
+	
+	geo.applyMatrix((new THREE.Matrix4()).set(
+		1, 0, 0, 0,
+		0, 0, 1, 0,
+		0, 1, 0, 0,
+		0, 0, 0, 1
+	));
+	
+	var texture = new THREE.Texture(model_texture);
+	texture.needsUpdate = true;
+	
+	material = new THREE.MeshBasicMaterial({
+		color: 0xffffff, 
+		//wireframe: true,
+		map: texture
+	});
+	
+	//material.side = THREE.DoubleSide;
+	material.side = THREE.BackSide;
+	
+	var myMesh = new THREE.Mesh(geo, material);
+	
+	var scene, camera, renderer;
+	var geometry, material, mesh;
+	
+	scene = new THREE.Scene();
+
+	camera = new THREE.PerspectiveCamera( 75, 800 / 600, 1, 10000 );
+	camera.position.x = 35;
+	camera.position.z = 35;
+	camera.position.y = 35;
+	
+	camera.lookAt(new THREE.Vector3(0, 0, 0));
+
+	scene.add(new THREE.AxisHelper(100));
+
+	//geometry = new THREE.BoxGeometry( 200, 200, 200 );
+
+	//mesh = new THREE.Mesh( geometry, material );
+	
+	//scene.add( mesh );
+	scene.add( myMesh );
+
+	renderer = new THREE.WebGLRenderer();
+	renderer.setSize( 800, 600 );
+
+	document.getElementById('render-container').appendChild(renderer.domElement);
+
+	(function animate() {
+		requestAnimationFrame(animate);
+		//myMesh.rotation.x += 0.01;
+		myMesh.rotation.y += 0.01;
+		renderer.render(scene, camera);
+	})();
+	
+};
 
 function begin(bin_granny2, bin_empelium) {
 
@@ -58,17 +187,95 @@ function begin(bin_granny2, bin_empelium) {
 	console.log('granny_file_info', struct);
 	writeTable('granny_file_info', struct);
 	
-	var textureCount = gr2.runtime.get_dword_ptr(file_info + 4 * 4);
-	var texturePtrs = gr2.runtime.get_dword_ptr(file_info + 5 * 4);
+	//return;
+	
+	var file_info = struct;
+	
+	function get_by_ptr(struct_arr, ptr) {
+		for(var i = 0; i < struct_arr.length; i++) {
+			if(struct_arr[i]._ptr == ptr)
+				return struct_arr[i];
+		}
+		return null;
+	};
+	
+	var meshIndices, vertices;
+	
+	for(var i = 0; i < file_info.ModelCount; i++) {
+		
+		// Create model
+		
+		var model = file_info.Models[i];
+		
+		console.log("Model",model);
+		
+		var model_instance = gr2.InstantiateModel(model._ptr);
+		var world_pose = gr2.NewWorldPose(file_info.Skeletons[0].BoneCount);
+		
+		console.log("Model instance", model_instance);
+		console.log("World pose", world_pose);
+		
+		var meshCount = model.MeshBindingsCount;
+		
+		var skeleton = get_by_ptr(file_info.Skeletons, model.Skeleton);
+		
+		console.log("Model skeleton", skeleton);
+		
+		for(var j = 0; j < meshCount; j++) {
+			// Create mesh
+			
+			var mesh = get_by_ptr(file_info.Meshes, model.MeshBindings[j]._ptr);
+			
+			var source_skeleton = gr2.GetSourceSkeleton(model_instance);
+			var binding = gr2.NewMeshBinding(mesh._ptr);
+			
+			console.log("Mesh", mesh);
+			console.log("source_skeleton", source_skeleton);
+			console.log("binding", binding);
+			
+			meshIndices = gr2.CopyMeshIndices(mesh._ptr);
+			
+			console.log("mesh indices", meshIndices);
+			
+			var vertexCount = gr2.GetMeshVertexCount(mesh._ptr);
+			var isRigid = gr2.MeshIsRigid(mesh._ptr);
+			
+			console.log("vertex count", vertexCount);
+			console.log("isRigid", isRigid);
+			
+			if(isRigid) throw "REPVBLICUS SENATVS EXCEPTION RIGIDIS";
+			
+			var mesh_vertex_type = gr2.GetMeshVertexType(mesh._ptr);
+			
+			var mesh_deformer = gr2.NewMeshDeformer(mesh_vertex_type);
+			
+			console.log('vertex type',mesh_vertex_type);
+			console.log('mesh deformer',mesh_deformer);
+			
+			vertices = gr2.CopyMeshVertices(mesh._ptr);
+			
+			console.log("vertices", vertices);
+			
+			break;
+			
+		}
+		
+	}
+	
+	//return;
+	
+	var model_texture;
+	
+	var textureCount = file_info.TextureCount;
+	var texturePtrs = file_info.Textures;
 	
 	for(var i = 0 ; i < textureCount; i++) {
 		
-		var textures_va = texturePtrs + 4 * i;
-		var texture_va = gr2.runtime.get_dword_ptr(textures_va);
+		var texture_va = gr2.runtime.get_dword_ptr(texturePtrs + 4 * i);
 		
 		struct = Granny2.readStructure(gr2.runtime.cpu, texture_va, Granny2.structs.granny_texture);
 		
-		writeTable("granny_texture " + i, struct);
+		writeTable("granny_texture, " + i, struct);
 		
 		var hasAlpha = gr2.TextureHasAlpha(texture_va);
 		var texture_data = gr2.CopyTextureImage(texture_va);
@@ -77,8 +284,6 @@ function begin(bin_granny2, bin_empelium) {
 		canvas.width = struct.Width;
 		canvas.height = struct.Height;
 		
-		document.body.appendChild(canvas);
-		
 		var ctx = canvas.getContext('2d');
 		var imgd = ctx.getImageData(0, 0, canvas.width, canvas.height);
 		for(var j = 0; j < texture_data.length; j++) {
@@ -86,10 +291,19 @@ function begin(bin_granny2, bin_empelium) {
 		}
 		ctx.putImageData(imgd, 0, 0);
 		
+		model_texture = canvas;
+		
+		document.body.appendChild(canvas);
+		
+		canvas = null;
+		ctx = null;
+		texture_data = null;
+		imgd = null;
 		break;
 		
 	}
 	
+	render(meshIndices, vertices, model_texture);
 
 	console.log("TextureHasAlpha:", hasAlpha);
 
@@ -116,7 +330,11 @@ function writeTable(title, obj) {
 		str += "<tr><td>" + i + "</td><td>" + obj[i] + "</td></tr>";
 	}
 
-	document.body.innerHTML += "<h1>" + title + "</h1>" + "<table>" + str + "</table>";
+	var div = document.createElement('div');
+
+	div.innerHTML = "<h1>" + title + "</h1>" + "<table>" + str + "</table>";
+
+	document.body.appendChild(div);
 
 }
 
@@ -138,8 +356,10 @@ window.onload = function() {
 			
 				var xhr = new XMLHttpRequest();
 
-				//xhr.open('GET', 'empelium90_0.gr2', true);
-				xhr.open('GET', 'guildflag90_1.gr2', true);
+				xhr.open('GET', 'empelium90_0.gr2', true);
+				//xhr.open('GET', 'guildflag90_1.gr2', true);
+				//xhr.open('GET', 'sguardian90_9.gr2', true);
+				//xhr.open('GET', 'treasurebox_2.gr2', true);
 				xhr.responseType = 'arraybuffer';
 
 				xhr.onload = function(e) {
@@ -164,3 +384,6 @@ window.onload = function() {
 
 
 </script>
+<body>
+	<div id="render-container"></div>
+</body>
